@@ -1,0 +1,153 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isEmailVerified() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName']) &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             (!('photoURL' in data) || (data.photoURL is string || data.photoURL == null)) &&
+             (!('currentStreak' in data) || data.currentStreak is number) &&
+             (!('totalFocusTime' in data) || data.totalFocusTime is number) &&
+             (!('weeklyFocus' in data) || (data.weeklyFocus is list && data.weeklyFocus.size() <= 7)) &&
+             (!('currentTimer' in data) || (data.currentTimer is map)) &&
+             (!('lastSeen' in data) || (data.lastSeen is timestamp || data.lastSeen == null)) &&
+             (!('createdAt' in data) || (data.createdAt is timestamp || data.createdAt == null));
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll(['name', 'code', 'creatorId', 'members']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.code is string && data.code.size() <= 10 &&
+             data.creatorId is string &&
+             data.members is list && data.members.size() <= 100 &&
+             data.members.size() >= 0;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['senderId', 'senderName', 'content', 'timestamp']) &&
+             data.senderId == request.auth.uid &&
+             data.senderName is string && data.senderName.size() <= 100 &&
+             (data.content is string || data.content == null) &&
+             (data.timestamp == request.time || data.timestamp is timestamp) &&
+             (!('fileUrl' in data) || (data.fileUrl is string && data.fileUrl.size() <= 1048576)) &&
+             (!('fileName' in data) || (data.fileName is string && data.fileName.size() <= 200)) &&
+             (!('type' in data) || data.type in ['text', 'file']) &&
+             (!('isSystem' in data) || data.isSystem is bool);
+    }
+
+    // USERS
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn(); 
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'currentStreak', 'totalFocusTime', 'weeklyFocus', 'lastSeen', 'currentTimer'])
+      );
+    }
+
+    // GROUPS
+    match /groups/{groupId} {
+      allow get, list: if isSignedIn(); 
+      allow create: if isSignedIn() && isValidGroup(incoming());
+      allow update: if isSignedIn() && (
+        // Action: Join
+        (incoming().diff(existing()).affectedKeys().hasOnly(['members']) && 
+         request.auth.uid in incoming().members && 
+         incoming().members.size() == existing().members.size() + 1) ||
+        // Action: Leave
+        (incoming().diff(existing()).affectedKeys().hasOnly(['members']) && 
+         existing().members.size() == incoming().members.size() + 1 &&
+         !(request.auth.uid in incoming().members) &&
+         request.auth.uid in existing().members) ||
+        // Action: Modify (Owner/Member)
+        (request.auth.uid in existing().members)
+      );
+      allow delete: if isSignedIn() && (request.auth.uid in existing().members);
+    }
+
+    // MESSAGES
+    match /groups/{groupId}/{collectionName}/{docId} {
+      function isGroupMember() {
+        return isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members);
+      }
+      
+      allow read, write: if collectionName == 'messages' && isGroupMember();
+    }
+
+    // TASKS
+    match /users/{userId}/tasks/{taskId} {
+      function isValidTask(data) {
+        return data.keys().hasAll(['title', 'status']) &&
+               data.title is string && data.title.size() <= 200 &&
+               data.status in ['todo', 'doing', 'done'] &&
+               (!('difficulty' in data) || data.difficulty in ['Mudah', 'Sedang', 'Sulit']) &&
+               (!('dueDate' in data) || data.dueDate is string) &&
+               (!('links' in data) || data.links is list) &&
+               (!('createdAt' in data) || (data.createdAt is timestamp || data.createdAt == null)) &&
+               (!('updatedAt' in data) || (data.updatedAt is timestamp || data.updatedAt == null));
+      }
+
+      allow get: if isOwner(userId) && isValidId(userId) && isValidId(taskId);
+      allow list: if isOwner(userId) && isValidId(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidId(taskId) && isValidTask(incoming()) && (incoming().createdAt == request.time);
+      allow update: if isOwner(userId) && isValidId(userId) && isValidId(taskId) && isValidTask(incoming()) && (
+        // Action: Move (Status change)
+        (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().updatedAt == request.time) ||
+        // Action: Edit (Content change)
+        (incoming().diff(existing()).affectedKeys().hasOnly(['title', 'difficulty', 'dueDate', 'links', 'updatedAt']) && 
+         incoming().updatedAt == request.time && 
+         incoming().createdAt == existing().createdAt)
+      );
+      allow delete: if isOwner(userId) && isValidId(userId) && isValidId(taskId);
+    }
+
+    // QUIZ HISTORY
+    match /users/{userId}/quizHistory/{quizId} {
+      function isValidQuizHistory(data) {
+        return data.keys().hasAll(['score', 'questionCount', 'createdAt']) &&
+               data.score is number &&
+               data.questionCount is number &&
+               data.createdAt == request.time &&
+               (!('title' in data) || (data.title is string || data.title == null)) &&
+               (!('type' in data) || data.type is string) &&
+               (!('questions' in data) || data.questions is list) &&
+               (!('userAnswers' in data) || data.userAnswers is map);
+      }
+
+      allow get: if isOwner(userId) && isValidId(userId) && isValidId(quizId);
+      allow list: if isOwner(userId) && isValidId(userId);
+      allow create: if isOwner(userId) && isValidId(userId) && isValidQuizHistory(incoming());
+      // No updates or deletes for history
+    }
+  }
+}

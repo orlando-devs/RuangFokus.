@@ -1,0 +1,116 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and statistics",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "currentStreak": { "type": "number" },
+        "totalFocusTime": { "type": "number" },
+        "weeklyFocus": { 
+          "type": "array",
+          "items": { "type": "number" }
+        },
+        "lastSeen": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "currentTimer": {
+          "type": "object",
+          "properties": {
+            "isRunning": { "type": "boolean" },
+            "timeLeft": { "type": "number" },
+            "mode": { "type": "string" },
+            "lastUpdated": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "required": ["displayName"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "Study group for collaborative learning",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "members": { 
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "code", "creatorId", "members"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message in a study group",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "senderName", "content", "timestamp"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Individual user profiles and focus stats"
+    },
+    "groups/{groupId}": {
+      "schema": "Group",
+      "description": "Top-level group information"
+    },
+    "groups/{groupId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages belonging to a specific group"
+    },
+    "users/{userId}/quizHistory/{quizId}": {
+      "schema": {
+        "title": "QuizHistory",
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "score": { "type": "number" },
+          "questionCount": { "type": "number" },
+          "type": { "type": "string" },
+          "questions": { "type": "array" },
+          "userAnswers": { "type": "object" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["score", "questionCount", "createdAt"]
+      },
+      "description": "History of AI-generated quizzes taken by the user"
+    },
+    "users/{userId}/tasks/{taskId}": {
+      "schema": {
+        "title": "Task",
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "status": { "type": "string", "enum": ["todo", "doing", "done"] },
+          "difficulty": { "type": "string", "enum": ["Mudah", "Sedang", "Sulit"] },
+          "dueDate": { "type": "string" },
+          "links": { 
+             "type": "array",
+             "items": {
+               "type": "object",
+               "properties": {
+                 "name": { "type": "string" },
+                 "url": { "type": "string" }
+               }
+             }
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["title", "status"]
+      },
+      "description": "User tasks for Kanban and Calendar"
+    }
+  }
+}

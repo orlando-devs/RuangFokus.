@@ -1,0 +1,6 @@
+{
+  "name": "RuangFokus: AI Study Mate",
+  "description": "A comprehensive study management app with Pomodoro timer, Kanban tasks, study groups, and AI-powered features including a chat assistant and automatic quiz generator from PDFs, documents, or links.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": []
+}
